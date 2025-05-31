@@ -43,6 +43,7 @@ seu_projeto/
 │   ├── atestado1.jpg
 │   └── atestado2.jpg
 └── data.jsonl
+```
 
 
 - **`fine_tuning_script.py`**: Contém a lógica para carregar o dataset personalizado de atestados, configurar o modelo TrOCR e executar o processo de fine-tuning.
@@ -57,6 +58,7 @@ seu_projeto/
     "image": "./images/atestado_exemplo.jpg", 
     "target_text": "nome: Nome do Paciente; data: DD/MM/AAAA; cid: CXX.X; dias_afastamento: X; crm: 123456"
 }
+```
 
 
 ## Requisitos
@@ -125,6 +127,7 @@ docker run --gpus all -p 8501:8501 \
 -v "$(pwd)/images:/app/images" \
 -v "$(pwd)/logs:/app/logs" \
 trocr-atestados
+```
 
 ### Sem GPU (após ajustar o Dockerfile):
 ```bash
@@ -135,6 +138,7 @@ docker run -p 8501:8501 \
 -v "$(pwd)/images:/app/images" \
 -v "$(pwd)/logs:/app/logs" \
 trocr-atestados
+```
 
 ## 4. Acesso à Aplicação
 

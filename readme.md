@@ -1,4 +1,4 @@
-﻿# Sistema de Extração de Dados de Atestados Médicos com TrOCR
+﻿# 🏥 Sistema de Extração de Dados de Atestados Médicos com TrOCR
 
 Este projeto implementa uma solução para extração automática de campos específicos de atestados médicos em formato JPG utilizando o modelo **TrOCR** (Transformer-based Optical Character Recognition) da Microsoft.
 
@@ -6,27 +6,27 @@ A aplicação permite realizar o *fine-tuning* do modelo com uma base de dados p
 
 ---
 
-## 📌 Visão Geral do Projeto
+## 🔍 Visão Geral do Projeto
 
 O core do projeto consiste em:
 
-- **Fine-tuning do TrOCR**  
+- 🎯 **Fine-tuning do TrOCR**  
   Adaptação de um modelo TrOCR pré-treinado para o domínio específico de atestados médicos, permitindo um reconhecimento de texto otimizado.
 
-- **Extração de Campos**  
+- 🔎 **Extração de Campos**  
   Após o OCR, uma etapa de pós-processamento com expressões regulares extrai campos-chave como:
-  - Nome
-  - Data
-  - CID
-  - Dias de afastamento
-  - CRM do médico
+  - 👤 Nome
+  - 📅 Data
+  - 🏷️ CID
+  - ⏳ Dias de afastamento
+  - 🩺 CRM do médico
 
-- **Interface Gráfica (Streamlit)**  
+- 💻 **Interface Gráfica (Streamlit)**  
   Aplicação web simples e funcional que facilita:
   - **Treinamento**: Upload de dados e configuração de hiperparâmetros.
   - **Inferência**: Upload de novos atestados para extração automática de texto e campos.
 
-- **Containerização (Docker)**  
+- 🐳 **Containerização (Docker)**  
   Todo o ambiente da aplicação, incluindo dependências e modelo, é empacotado em uma imagem Docker, garantindo execução consistente e reprodutível.
 
 ---
@@ -61,26 +61,25 @@ seu_projeto/
 ```
 
 
-## Requisitos
+## ⚙️ Requisitos
 
 - **Docker**: Certifique-se de ter o Docker Desktop (Windows/macOS) ou o Docker Engine (Linux) instalado e em execução.
 - **GPU (Opcional, mas Altamente Recomendado para Treinamento)**: Se você pretende realizar o fine-tuning usando uma GPU NVIDIA, certifique-se de ter os drivers NVIDIA, CUDA Toolkit e NVIDIA Container Toolkit instalados em seu sistema host, compatíveis com a versão do CUDA especificada no Dockerfile (atualmente 11.8). Sem GPU, o treinamento será significativamente mais lento.
 
-## Instruções de Implantação
+## 🚀 Instruções de Implantação
 
 Siga os passos abaixo para implantar e executar o projeto:
 
-### 1. Preparação do Ambiente
+### 1. 🛠️ Preparação do Ambiente
 
-- **Clone ou Baixe o Projeto**: Obtenha todos os arquivos do projeto (`fine_tuning_script.py`, `app.py`, `requirements.txt`, `Dockerfile`) e coloque-os em um diretório no seu computador (ex: `ocr-atestado/`).
+    ```bash
+    # Clone o repositório
+    git https://github.com/leandrosnazareth/ocr-atestado.git
+    cd ocr-atestado/
+    ```
 
-- **Crie a Pasta de Imagens e o Arquivo de Dados**:
-    - Dentro do diretório raiz do seu projeto (`ocr-atestado/`), crie uma pasta chamada `images`. Coloque todas as suas imagens JPG de atestados médicos que serão usadas para treinamento dentro desta pasta.
-    - Crie o arquivo `data.jsonl` na raiz do seu projeto. Popule-o com suas anotações no formato JSONL (um objeto JSON por linha), garantindo que os caminhos das imagens no `data.jsonl` correspondam aos arquivos na pasta `images/` (ex: `"image": "./images/nome_da_imagem.jpg"`).
 
-### 2. Construção da Imagem Docker
-
-- **Abra o Terminal**: Navegue até o diretório raiz do seu projeto (`ocr-atestado/`) no terminal.
+### 2. 🏗️ Construção da Imagem Docker
 
 - **Construa a Imagem Docker**:
     Execute o comando abaixo para construir a imagem Docker. Isso pode levar alguns minutos na primeira vez, pois o Docker precisa baixar a imagem base e instalar todas as dependências.
@@ -113,7 +112,7 @@ Siga os passos abaixo para implantar e executar o projeto:
     docker build -t trocr-atestados .
     ```
 
-## 3. Execução do Container Docker
+## 3. 🏃 Execução do Container Docker
 
 - **Execute o Container**: Execute o comando apropriado abaixo para iniciar o container Docker. Os volumes (`-v`) são cruciais para persistir seus dados e o modelo treinado, além de permitir que o container acesse suas imagens de treinamento.
 
@@ -146,29 +145,17 @@ trocr-atestados
 
   [http://localhost:8501](http://localhost:8501)
 
-## Utilizando a Aplicação
+## 💡 Utilizando a Aplicação
 
 Uma vez que a aplicação Streamlit esteja carregada no seu navegador:
 
-### Treinamento do Modelo:
+### 🏋️ Treinamento do Modelo:
 1. Navegue para a aba **"Treinamento do Modelo"**.
 2. Faça upload do seu arquivo `data.jsonl`.
 3. Ajuste os hiperparâmetros (Épocas, Tamanho do Batch, Taxa de Aprendizado) conforme necessário.
 4. Clique em **"Iniciar Treinamento"**. A saída do treinamento será exibida na interface. Aguarde a conclusão para que o modelo seja salvo.
 
-### Inferência de Atestado:
+### 🔮 Inferência de Atestado:
 1. Navegue para a aba **"Inferência de Atestado"**.
 2. Faça upload de um arquivo JPG de atestado médico.
 3. A aplicação executará o OCR e tentará extrair os campos definidos (nome, data, CID, etc.). O texto completo e os campos extraídos serão exibidos.
-
-## Considerações Importantes e Próximos Passos
-
-- **Qualidade dos Dados de Treinamento**: A performance do modelo fine-tuned depende diretamente da qualidade e quantidade dos seus dados anotados em `data.jsonl`. Quanto mais diversificados e precisos forem seus atestados e anotações, melhor o modelo se sairá.
-  
-- **Parsing de Campos**: A extração de campos específicos é feita por expressões regulares. Se os layouts dos seus atestados variarem muito, ou se os campos não estiverem sempre no mesmo formato, a lógica de parsing pode precisar de ajustes ou de uma solução mais avançada de PLN (como um modelo de Reconhecimento de Entidades Nomeadas - NER).
-
-- **Otimização**: Para uso em produção, você pode considerar otimizações adicionais como quantização do modelo ou uso de frameworks de inferência otimizados (ex: ONNX Runtime).
-
-- **Logging**: O diretório `logs` montado no Docker pode ser usado com ferramentas como TensorBoard para visualizar o progresso do treinamento.
-
-Se surgir qualquer dúvida ou problema durante a implantação ou uso, não hesite em perguntar!

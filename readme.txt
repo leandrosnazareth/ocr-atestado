@@ -26,7 +26,8 @@ seu_projeto/
 │   └── atestado2.jpg
 └── data.jsonl
 
-    fine_tuning_script.py: Contém a lógica para carregar o dataset personalizado de atestados, configurar o modelo TrOCR e executar o processo de fine-tuning.
+    fine_tuning_script.py: 
+    Contém a lógica para carregar o dataset personalizado de atestados, configurar o modelo TrOCR e executar o processo de fine-tuning.
     app.py: A aplicação Streamlit que fornece a interface gráfica para interação com o usuário (upload de dados, início do treinamento, inferência).
     requirements.txt: Lista todas as bibliotecas Python necessárias para o projeto (Hugging Face Transformers, PyTorch, Streamlit, etc.).
     Dockerfile: Define as etapas para construir a imagem Docker do seu projeto, instalando as dependências e configurando o ambiente.
@@ -34,7 +35,10 @@ seu_projeto/
     data.jsonl: Seu arquivo de dados de treinamento. Cada linha deve ser um objeto JSON no formato:
     JSON
 
-    {"image": "./images/atestado_exemplo.jpg", "target_text": "nome: Nome do Paciente; data: DD/MM/AAAA; cid: CXX.X; dias_afastamento: X; crm: 123456"}
+    {
+        "image": "./images/atestado_exemplo.jpg", 
+        "target_text": "nome: Nome do Paciente; data: DD/MM/AAAA; cid: CXX.X; dias_afastamento: X; crm: 123456"
+    }
 
     Importante: Os caminhos das imagens ("./images/atestado_exemplo.jpg") no data.jsonl devem ser relativos ao diretório raiz do projeto (/app dentro do container Docker) e corresponder à estrutura de pastas que você montar no container.
 

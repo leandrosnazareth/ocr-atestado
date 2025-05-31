@@ -141,9 +141,16 @@ elif option == "Inferência":
             try:
                 nome = extracted_text.split("nome:")[1].split(";")[0].strip()
                 data = extracted_text.split("data:")[1].split(";")[0].strip()
+                cid = extracted_text.split("cid:")[1].split(";")[0].strip()
+                dias_afastamento = extracted_text.split("dias_afastamento:")[1].split(";")[0].strip()
+                crm = extracted_text.split("crm:")[1].split(";")[0].strip()
+                # Exibe os campos extraídos
                 st.write(f"**Nome:** {nome}")
                 st.write(f"**Data:** {data}")
-                # Adicione mais campos aqui
+                st.write(f"**CID:** {cid}")
+                st.write(f"**Dias de Afastamento:** {dias_afastamento}")
+                st.write(f"**CRM:** {crm}")
+                
             except IndexError:
                 st.warning("Não foi possível extrair todos os campos com o parsing atual. Ajuste a lógica.")
         else:

@@ -1,4 +1,4 @@
-README: Sistema de Extração de Dados de Atestados Médicos com TrOCR
+Sistema de Extração de Dados de Atestados Médicos com TrOCR
 
 Este projeto implementa uma solução para extração automática de campos específicos de atestados médicos em formato JPG utilizando o modelo TrOCR (Transformer-based Optical Character Recognition) da Microsoft. A aplicação permite realizar o fine-tuning do modelo com uma base de dados personalizada e oferece uma interface gráfica intuitiva para upload de arquivos e controle do processo de treinamento e inferência. Todo o ambiente é empacotado em um container Docker para facilitar a implantação e garantir a reprodutibilidade.
 Visão Geral do Projeto

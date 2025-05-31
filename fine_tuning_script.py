@@ -5,6 +5,7 @@ from PIL import Image
 import torch
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel, Trainer, TrainingArguments
 from torch.utils.data import Dataset
+from evaluate import load 
 
 # --- 1. Definição do Dataset Personalizado ---
 class MedicalCertificateDataset(Dataset):
@@ -23,15 +24,19 @@ class MedicalCertificateDataset(Dataset):
         """
         data = []
         if not os.path.exists(data_path):
-            print(f"Erro: O arquivo de dados não foi encontrado em {data_path}")
+            print(f"Erro: O arquivo de dados não foi encontrado em {data_path}. Verifique o caminho.")
             return []
         try:
             with open(data_path, 'r', encoding='utf-8') as f:
                 for line in f:
-                    data.append(json.loads(line))
-        except json.JSONDecodeError as e:
-            print(f"Erro ao decodificar JSON no arquivo {data_path}: {e}")
-            print(f"Linha que causou o erro: {line.strip()}")
+                    # Tenta carregar cada linha como JSON
+                    try:
+                        data.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        print(f"Aviso: Erro ao decodificar JSON na linha: '{line.strip()}'. Erro: {e}. Pulando linha.")
+                        continue # Pula para a próxima linha se houver erro de JSON
+        except Exception as e:
+            print(f"Erro inesperado ao ler o arquivo {data_path}: {e}")
             return []
         return data
 
@@ -48,13 +53,10 @@ class MedicalCertificateDataset(Dataset):
         target_text = item["target_text"]
 
         # Verifica se o caminho da imagem é absoluto ou relativo
-        # Se for relativo, assume que é relativo ao diretório de trabalho atual
-        if not os.path.isabs(image_path):
-            # Assumimos que as imagens estão em um diretório 'images' ou no mesmo nível
-            # Para o Docker, certifique-se de que o diretório de imagens seja montado corretamente.
-            # Ex: se o caminho no JSON for 'images/atestado1.jpg' e 'images' está na raiz do projeto
-            # ele será encontrado.
-            pass # O caminho já deve estar correto se o volume Docker for montado apropriadamente
+        # Para o Docker, certifique-se de que o diretório de imagens seja montado corretamente.
+        # Ex: se o caminho no JSON for 'images/atestado1.jpg' e 'images' está na raiz do projeto
+        # ele será encontrado.
+        # Não é necessário modificar o image_path aqui se os volumes Docker estiverem configurados corretamente.
 
         try:
             image = Image.open(image_path).convert("RGB")
@@ -98,6 +100,31 @@ def collate_fn(batch):
 
     return {"pixel_values": pixel_values, "labels": labels}
 
+# Inicializa a métrica CER (Character Error Rate)
+# Esta métrica será usada na função compute_metrics
+cer_metric = load("cer")
+
+def compute_metrics(pred):
+    """
+    Função para calcular métricas de avaliação durante o treinamento.
+    Calcula o Character Error Rate (CER).
+    """
+    labels_ids = pred.label_ids
+    pred_ids = pred.predictions
+
+    # Decodifica as previsões do modelo para texto
+    pred_str = processor.tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
+    
+    # Substitui -100 (tokens de padding ignorados na perda) pelo token de padding real
+    # para que o tokenizer possa decodificá-los corretamente.
+    labels_ids[labels_ids == -100] = processor.tokenizer.pad_token_id
+    label_str = processor.tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
+
+    # Calcula o CER
+    cer = cer_metric.compute(predictions=pred_str, references=label_str)
+
+    return {"cer": cer}
+
 # --- 2. Função Principal de Fine-tuning ---
 def run_fine_tuning(
     data_json_path,
@@ -108,6 +135,7 @@ def run_fine_tuning(
     eval_steps=500,
     save_steps=500,
     logging_steps=50,
+    save_total_limit=3, # Limita o número total de checkpoints salvos
 ):
     """
     Executa o processo de fine-tuning do modelo TrOCR.
@@ -121,7 +149,9 @@ def run_fine_tuning(
         eval_steps (int): Número de passos entre cada avaliação.
         save_steps (int): Número de passos entre cada salvamento do modelo.
         logging_steps (int): Número de passos entre cada log de treinamento.
+        save_total_limit (int): Limite o número total de checkpoints a serem salvos.
     """
+    global processor # Declara processor como global para ser acessível em compute_metrics
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Usando dispositivo: {device}")
 
@@ -150,8 +180,8 @@ def run_fine_tuning(
     # Garante que a divisão seja aleatória e reproduzível
     train_dataset, eval_dataset = torch.utils.data.random_split(dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42))
 
-    print(f"Tamanho do dataset de treino: {len(train_dataset)}")
-    print(f"Tamanho do dataset de avaliação: {len(eval_dataset)}")
+    print(f"Tamanho do dataset de treino: {len(train_dataset)} amostras.")
+    print(f"Tamanho do dataset de avaliação: {len(eval_dataset)} amostras.")
 
     # Configurar argumentos de treinamento
     training_args = TrainingArguments(
@@ -164,14 +194,17 @@ def run_fine_tuning(
         eval_steps=eval_steps,
         save_strategy="steps", # Salva o checkpoint a cada 'save_steps' passos
         save_steps=save_steps,
+        save_total_limit=save_total_limit, # Limita o número de checkpoints salvos
         logging_steps=logging_steps, # Loga métricas a cada 'logging_steps' passos
         logging_dir="./logs", # Diretório para logs (ex: para TensorBoard)
         report_to="none", # Desabilita integração com Weights & Biases, etc.
         load_best_model_at_end=True, # Carrega o melhor modelo (baseado em eval_loss) no final do treinamento
-        metric_for_best_model="eval_loss",
+        metric_for_best_model="eval_loss", # A métrica principal para determinar o "melhor" modelo
         greater_is_better=False, # Para loss, menor é melhor
         fp16=True if device == "cuda" else False, # Habilita Mixed Precision Training para GPU (mais rápido, menos memória)
         dataloader_num_workers=os.cpu_count() // 2 if os.cpu_count() else 0, # Otimiza o carregamento de dados
+        # Adiciona a métrica CER para monitoramento
+        # Note: 'eval_loss' ainda é a métrica para 'load_best_model_at_end'
     )
 
     # Inicializar Trainer
@@ -181,19 +214,20 @@ def run_fine_tuning(
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=collate_fn, # Usa a função de colagem personalizada
+        compute_metrics=compute_metrics, # Adiciona a função para calcular métricas
     )
 
     # Treinar o modelo
-    print("Iniciando treinamento...")
+    print("Iniciando treinamento do modelo TrOCR...")
     trainer.train()
     print("Treinamento concluído!")
 
     # Salvar o modelo e o processador treinados
-    print(f"Salvando modelo e processador em {model_output_dir}...")
+    print(f"Salvando modelo e processador fine-tuned em {model_output_dir}...")
     os.makedirs(model_output_dir, exist_ok=True) # Garante que o diretório exista
     processor.save_pretrained(model_output_dir)
     model.save_pretrained(model_output_dir)
-    print("Modelo e processador salvos.")
+    print("Modelo e processador salvos com sucesso.")
 
     # --- Exemplo de Inferência (Após o treinamento) ---
     print("\n--- Exemplo de Inferência após o treinamento ---")
@@ -213,8 +247,8 @@ def run_fine_tuning(
                 sample_item['labels'][sample_item['labels'] != -100],
                 skip_special_tokens=True
             )
-            print(f"Texto Original: {original_text}")
-            print(f"Texto Gerado: {generated_text}")
+            print(f"Texto Original (Label): {original_text}")
+            print(f"Texto Gerado (Previsão): {generated_text}")
         except IndexError:
             print("Nenhum dado de avaliação disponível para exemplo de inferência.")
         except Exception as e:
@@ -236,6 +270,9 @@ if __name__ == "__main__":
                         help="Tamanho do batch para treinamento e avaliação.")
     parser.add_argument("--learning_rate", type=float, default=4e-5,
                         help="Taxa de aprendizado para o otimizador.")
+    parser.add_argument("--save_total_limit", type=int, default=3,
+                        help="Limite o número total de checkpoints a serem salvos.")
+
 
     args = parser.parse_args()
 
@@ -245,6 +282,7 @@ if __name__ == "__main__":
         model_output_dir=args.model_output_dir,
         epochs=args.epochs,
         batch_size=args.batch_size,
-        learning_rate=args.learning_rate
+        learning_rate=args.learning_rate,
+        save_total_limit=args.save_total_limit,
     )
 

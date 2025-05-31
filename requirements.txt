@@ -3,3 +3,5 @@ torch
 Pillow
 streamlit
 jsonlines
+accelerate
+evaluate

@@ -12,7 +12,7 @@ MODEL_DIR = "./fine_tuned_trocr_model"
 DATA_UPLOAD_DIR = "./uploaded_data" # Para salvar os JSONs de treinamento
 TEMP_IMAGES_DIR = "./temp_images" # Diretório temporário para salvar imagens para inferência
 
-# Garante que os diretórios existam
+# Garante que os diretórios existam ao iniciar a aplicação
 os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(DATA_UPLOAD_DIR, exist_ok=True)
 os.makedirs(TEMP_IMAGES_DIR, exist_ok=True)
@@ -28,7 +28,7 @@ def load_model_for_inference():
     model = None
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    if os.path.exists(MODEL_DIR):
+    if os.path.exists(MODEL_DIR) and os.listdir(MODEL_DIR): # Verifica se o diretório existe e não está vazio
         try:
             st.info(f"Carregando modelo fine-tuned de: {MODEL_DIR}...")
             processor = TrOCRProcessor.from_pretrained(MODEL_DIR)
@@ -38,13 +38,14 @@ def load_model_for_inference():
             st.success("Modelo fine-tuned carregado com sucesso!")
         except Exception as e:
             st.warning(f"Erro ao carregar o modelo fine-tuned ({e}). Carregando modelo base...")
+            # Fallback para o modelo base se o fine-tuned não carregar
             processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
             model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
             if device == "cuda":
                 model.to("cuda")
             st.info("Modelo base 'microsoft/trocr-base-handwritten' carregado.")
     else:
-        st.warning("Diretório do modelo fine-tuned não encontrado. Carregando modelo base 'microsoft/trocr-base-handwritten'...")
+        st.warning("Diretório do modelo fine-tuned não encontrado ou vazio. Carregando modelo base 'microsoft/trocr-base-handwritten'...")
         processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
         model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
         if device == "cuda":
@@ -125,11 +126,11 @@ st.markdown("Uma aplicação para fine-tuning e inferência de modelos TrOCR em 
 
 # Barra lateral para navegação
 st.sidebar.title("Navegação")
-# Nomes das opções atualizados para consistência
+# Atualização dos nomes das opções para maior clareza e consistência
 option = st.sidebar.radio("Selecione uma opção:", ("Treinamento do Modelo", "Inferência de Atestado"))
 
 # --- Seção de Treinamento ---
-if option == "Treinamento do Modelo": # Nome da opção atualizado
+if option == "Treinamento do Modelo":
     st.header("Treinamento do Modelo TrOCR")
     st.write("Faça upload do seu arquivo JSONL com os dados de treinamento para fine-tuning do TrOCR.")
     st.info("O arquivo JSONL deve ter uma linha por objeto JSON, no formato: "
@@ -154,9 +155,9 @@ if option == "Treinamento do Modelo": # Nome da opção atualizado
             st.warning("A saída do treinamento será exibida abaixo. O Streamlit pode parecer congelado durante o processo.")
 
             try:
-                # Chama o script de fine-tuning em um processo separado
+                # CORREÇÃO CRÍTICA: Mudar "python" para "python3" para garantir que o interpretador correto seja encontrado no Docker
                 command = [
-                    "python", "fine_tuning_script.py",
+                    "python3", "fine_tuning_script.py",
                     "--data_json_path", training_data_path,
                     "--model_output_dir", MODEL_DIR,
                     "--epochs", str(epochs),
@@ -211,7 +212,6 @@ elif option == "Inferência de Atestado": # Nome da opção atualizado
     st.write("Faça upload de um atestado médico (JPG) para extrair o texto e os campos específicos.")
 
     # Carrega o processador e o modelo (fine-tuned ou base).
-    # Esta função já tenta carregar o modelo fine-tuned primeiro e, em caso de erro, o modelo base.
     processor, model = load_model_for_inference()
 
     # Widget para upload da imagem
@@ -241,7 +241,6 @@ elif option == "Inferência de Atestado": # Nome da opção atualizado
                 st.success(extracted_text)
 
                 # Extrai os campos utilizando a função de parsing baseada em expressões regulares.
-                # Esta função (parse_medical_certificate_text) deve estar definida no seu app.py.
                 st.subheader("Campos Extraídos:")
                 parsed_fields = parse_medical_certificate_text(extracted_text)
 

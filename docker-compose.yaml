@@ -1,0 +1,20 @@
+version: '3.9'
+
+services:
+  trocr-atestados:
+    image: trocr-atestados
+    ports:
+      - "8502:8502"
+    volumes:
+      - ./fine_tuned_trocr_model:/app/fine_tuned_trocr_model
+      - ./uploaded_data:/app/uploaded_data
+      - ./temp_images:/app/temp_images
+      - ./images:/app/images 
+      - ./logs:/app/logs
+    shm_size: '2g' 
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+

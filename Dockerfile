@@ -44,10 +44,10 @@ COPY . .
 RUN mkdir -p ./uploaded_data ./temp_images ./fine_tuned_trocr_model ./logs
 
 # Expõe a porta que o Streamlit usará
-EXPOSE 8501
+EXPOSE 8502
 
 # Comando para iniciar a aplicação Streamlit
 # Usa 'python3 -m streamlit' para garantir que o streamlit seja executado com o interpretador python3
-CMD ["python3", "-m", "streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["python3", "-m", "streamlit", "run", "app.py", "--server.port=8502", "--server.address=0.0.0.0"]
 
 

@@ -5,12 +5,13 @@ from PIL import Image
 import torch
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel, Trainer, TrainingArguments
 from torch.utils.data import Dataset
-from evaluate import load 
+from evaluate import load # Importa a biblioteca evaluate para metricas
+import jsonlines # Adicionado para leitura robusta de JSONL
 
-# --- 1. Definição do Dataset Personalizado ---
+# --- 1. Definicao do Dataset Personalizado ---
 class MedicalCertificateDataset(Dataset):
     """
-    Dataset personalizado para carregar imagens de atestados médicos e seus textos alvo.
+    Dataset personalizado para carregar imagens de atestados medicos e seus textos alvo.
     """
     def __init__(self, data_path, processor, max_target_length=128):
         self.processor = processor
@@ -19,29 +20,28 @@ class MedicalCertificateDataset(Dataset):
 
     def _load_data(self, data_path):
         """
-        Carrega os dados de um arquivo JSONL (JSON Lines).
+        Carrega os dados de um arquivo JSONL (JSON Lines) usando a biblioteca jsonlines.
         Cada linha do arquivo deve ser um objeto JSON.
         """
         data = []
         if not os.path.exists(data_path):
-            print(f"Erro: O arquivo de dados não foi encontrado em {data_path}. Verifique o caminho.")
+            print(f"Erro: O arquivo de dados nao foi encontrado em {data_path}. Verifique o caminho.")
             return []
         try:
-            with open(data_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    # Tenta carregar cada linha como JSON
-                    try:
-                        data.append(json.loads(line))
-                    except json.JSONDecodeError as e:
-                        print(f"Aviso: Erro ao decodificar JSON na linha: '{line.strip()}'. Erro: {e}. Pulando linha.")
-                        continue # Pula para a próxima linha se houver erro de JSON
+            # Usa jsonlines.open para ler o arquivo JSONL de forma mais robusta
+            with jsonlines.open(data_path, 'r') as reader:
+                for obj in reader:
+                    data.append(obj)
+            print(f"Dados carregados com sucesso de {data_path}. Total de {len(data)} itens.")
+        except jsonlines.InvalidLineError as e:
+            print(f"Aviso: Linha invalida no arquivo {data_path}: {e}. Pulando linha.")
         except Exception as e:
             print(f"Erro inesperado ao ler o arquivo {data_path}: {e}")
             return []
         return data
 
     def __len__(self):
-        """Retorna o número total de itens no dataset."""
+        """Retorna o numero total de itens no dataset."""
         return len(self.data)
 
     def __getitem__(self, idx):
@@ -52,16 +52,16 @@ class MedicalCertificateDataset(Dataset):
         image_path = item["image"]
         target_text = item["target_text"]
 
-        # Verifica se o caminho da imagem é absoluto ou relativo
-        # Para o Docker, certifique-se de que o diretório de imagens seja montado corretamente.
-        # Ex: se o caminho no JSON for 'images/atestado1.jpg' e 'images' está na raiz do projeto
-        # ele será encontrado.
-        # Não é necessário modificar o image_path aqui se os volumes Docker estiverem configurados corretamente.
+        # Verifica se o caminho da imagem e absoluto ou relativo
+        # Para o Docker, certifique-se de que o diretorio de imagens seja montado corretamente.
+        # Ex: se o caminho no JSON for 'images/atestado1.jpg' e 'images' esta na raiz do projeto
+        # ele sera encontrado.
+        # Nao e necessario modificar o image_path aqui se os volumes Docker estiverem configurados corretamente.
 
         try:
             image = Image.open(image_path).convert("RGB")
         except FileNotFoundError:
-            print(f"Aviso: Imagem não encontrada em {image_path}. Pulando este item.")
+            print(f"Aviso: Imagem nao encontrada em {image_path}. Pulando este item.")
             return None # Retorna None para que o DataLoader possa lidar com isso
         except Exception as e:
             print(f"Erro ao abrir a imagem {image_path}: {e}. Pulando este item.")
@@ -80,19 +80,23 @@ class MedicalCertificateDataset(Dataset):
         ).input_ids
 
         # Decodificador TrOCR espera que os labels sejam -100 para tokens de padding
-        # Isso garante que a perda não seja calculada sobre os tokens de padding.
+        # Isso garante que a perda nao seja calculada sobre os tokens de padding.
         labels[labels == self.processor.tokenizer.pad_token_id] = -100
 
         return {"pixel_values": pixel_values.squeeze(), "labels": labels.squeeze()}
 
-# Função para filtrar itens None do DataLoader
+# Funcao para filtrar itens None do DataLoader
 def collate_fn(batch):
     """
-    Função de colagem para o DataLoader, que filtra itens None (imagens não encontradas ou com erro).
+    Funcao de colagem para o DataLoader, que filtra itens None (imagens nao encontradas ou com erro).
+    Retorna um dicionario vazio se o batch estiver vazio apos a filtragem,
+    para evitar TypeError no Trainer.
     """
     batch = list(filter(lambda x: x is not None, batch))
     if not batch:
-        return None # Retorna None se o batch estiver vazio após a filtragem
+        # Se o batch estiver vazio, retorna um dicionario vazio.
+        # O Trainer pode lidar com isso, pulando este passo de treinamento.
+        return {} 
 
     # Empilha os tensores de pixel_values e labels
     pixel_values = torch.stack([item["pixel_values"] for item in batch])
@@ -100,23 +104,23 @@ def collate_fn(batch):
 
     return {"pixel_values": pixel_values, "labels": labels}
 
-# Inicializa a métrica CER (Character Error Rate)
-# Esta métrica será usada na função compute_metrics
+# Inicializa a metrica CER (Character Error Rate)
+# Esta metrica sera usada na funcao compute_metrics
 cer_metric = load("cer")
 
 def compute_metrics(pred):
     """
-    Função para calcular métricas de avaliação durante o treinamento.
+    Funcao para calcular metricas de avaliacao durante o treinamento.
     Calcula o Character Error Rate (CER).
     """
     labels_ids = pred.label_ids
     pred_ids = pred.predictions
 
-    # Decodifica as previsões do modelo para texto
+    # Decodifica as previsoes do modelo para texto
     pred_str = processor.tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
     
     # Substitui -100 (tokens de padding ignorados na perda) pelo token de padding real
-    # para que o tokenizer possa decodificá-los corretamente.
+    # para que o tokenizer possa decodifica-los corretamente.
     labels_ids[labels_ids == -100] = processor.tokenizer.pad_token_id
     label_str = processor.tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
 
@@ -125,7 +129,7 @@ def compute_metrics(pred):
 
     return {"cer": cer}
 
-# --- 2. Função Principal de Fine-tuning ---
+# --- 2. Funcao Principal de Fine-tuning ---
 def run_fine_tuning(
     data_json_path,
     model_output_dir="fine_tuned_trocr_model",
@@ -135,33 +139,35 @@ def run_fine_tuning(
     eval_steps=500,
     save_steps=500,
     logging_steps=50,
-    save_total_limit=3, # Limita o número total de checkpoints salvos
+    save_total_limit=3, # Limita o numero total de checkpoints salvos
+    gradient_accumulation_steps=1, # NOVO: Adicionado para controlar a acumulacao de gradientes
 ):
     """
     Executa o processo de fine-tuning do modelo TrOCR.
 
     Args:
         data_json_path (str): Caminho para o arquivo JSONL contendo os dados de treinamento.
-        model_output_dir (str): Diretório para salvar o modelo e o processador treinados.
-        epochs (int): Número de épocas de treinamento.
-        batch_size (int): Tamanho do batch para treinamento e avaliação.
+        model_output_dir (str): Diretorio para salvar o modelo e o processador treinados.
+        epochs (int): Numero de epocas de treinamento.
+        batch_size (int): Tamanho do batch para treinamento e avaliacao.
         learning_rate (float): Taxa de aprendizado para o otimizador.
-        eval_steps (int): Número de passos entre cada avaliação.
-        save_steps (int): Número de passos entre cada salvamento do modelo.
-        logging_steps (int): Número de passos entre cada log de treinamento.
-        save_total_limit (int): Limite o número total de checkpoints a serem salvos.
+        eval_steps (int): Numero de passos entre cada avaliacao.
+        save_steps (int): Numero de passos entre cada salvamento do modelo.
+        logging_steps (int): Numero de passos entre cada log de treinamento.
+        save_total_limit (int): Limite o numero total de checkpoints a serem salvos.
+        gradient_accumulation_steps (int): Numero de passos para acumular gradientes antes de atualizar os pesos.
     """
-    global processor # Declara processor como global para ser acessível em compute_metrics
+    global processor # Declara processor como global para ser acessivel em compute_metrics
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Usando dispositivo: {device}")
 
-    # Carregar processador e modelo pré-treinado da Microsoft
-    print("Carregando processador e modelo pré-treinado 'microsoft/trocr-base-handwritten'...")
+    # Carregar processador e modelo pre-treinado da Microsoft
+    print("Carregando processador e modelo pre-treinado 'microsoft/trocr-base-handwritten'...")
     processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
     model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
 
-    # Configurar o decodificador para geração de texto
-    # Estes são parâmetros importantes para a geração de texto do modelo.
+    # Configurar o decodificador para geracao de texto
+    # Estes sao parametros importantes para a geracao de texto do modelo.
     model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
     model.config.pad_token_id = processor.tokenizer.pad_token_id
     model.config.vocab_size = model.config.decoder.vocab_size
@@ -170,18 +176,30 @@ def run_fine_tuning(
     print(f"Carregando dados do dataset de: {data_json_path}")
     dataset = MedicalCertificateDataset(data_json_path, processor)
 
-    if not dataset:
-        print("Nenhum dado válido encontrado no dataset. Abortando treinamento.")
+    if not dataset or len(dataset) == 0: # Adicionada verificacao de dataset vazio
+        print("Nenhum dado valido encontrado no dataset. Abortando treinamento.")
         return
 
-    # Dividir o dataset em treino e validação (90% treino, 10% validação)
+    # Dividir o dataset em treino e validacao (90% treino, 10% validacao)
+    # Garante que haja dados suficientes para ambos os datasets
+    if len(dataset) < 2: # Minimo de 2 para divisao (1 para treino, 1 para validacao)
+        print("Dataset muito pequeno para divisao em treino/validacao. Abortando treinamento.")
+        return
+
     train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
-    # Garante que a divisão seja aleatória e reproduzível
+    
+    # Garante que ambos os tamanhos sejam pelo menos 1
+    # Ajusta o train_size se o dataset for muito pequeno para garantir val_size > 0
+    if train_size == 0: train_size = 1
+    if val_size == 0: val_size = 1
+    if train_size + val_size > len(dataset): # Se a soma exceder o total (devido a arredondamento ou dataset pequeno)
+        train_size = len(dataset) - val_size # Ajusta o treino para o restante
+
     train_dataset, eval_dataset = torch.utils.data.random_split(dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42))
 
     print(f"Tamanho do dataset de treino: {len(train_dataset)} amostras.")
-    print(f"Tamanho do dataset de avaliação: {len(eval_dataset)} amostras.")
+    print(f"Tamanho do dataset de avaliacao: {len(eval_dataset)} amostras.")
 
     # Configurar argumentos de treinamento
     training_args = TrainingArguments(
@@ -194,17 +212,16 @@ def run_fine_tuning(
         eval_steps=eval_steps,
         save_strategy="steps", # Salva o checkpoint a cada 'save_steps' passos
         save_steps=save_steps,
-        save_total_limit=save_total_limit, # Limita o número de checkpoints salvos
-        logging_steps=logging_steps, # Loga métricas a cada 'logging_steps' passos
-        logging_dir="./logs", # Diretório para logs (ex: para TensorBoard)
-        report_to="none", # Desabilita integração com Weights & Biases, etc.
+        save_total_limit=save_total_limit, # Limita o numero de checkpoints salvos
+        logging_steps=logging_steps, # Loga metricas a cada 'logging_steps' passos
+        logging_dir="./logs", # Diretorio para logs (ex: para TensorBoard)
+        report_to="none", # Desabilita integracao com Weights & Biases, etc.
         load_best_model_at_end=True, # Carrega o melhor modelo (baseado em eval_loss) no final do treinamento
-        metric_for_best_model="eval_loss", # A métrica principal para determinar o "melhor" modelo
-        greater_is_better=False, # Para loss, menor é melhor
-        fp16=True if device == "cuda" else False, # Habilita Mixed Precision Training para GPU (mais rápido, menos memória)
+        metric_for_best_model="eval_loss", # A metrica principal para determinar o "melhor" modelo
+        greater_is_better=False, # Para loss, menor e melhor
+        fp16=True if device == "cuda" else False, # Habilita Mixed Precision Training para GPU (mais rapido, menos memoria)
         dataloader_num_workers=os.cpu_count() // 2 if os.cpu_count() else 0, # Otimiza o carregamento de dados
-        # Adiciona a métrica CER para monitoramento
-        # Note: 'eval_loss' ainda é a métrica para 'load_best_model_at_end'
+        gradient_accumulation_steps=gradient_accumulation_steps, # NOVO: Adicionado aqui
     )
 
     # Inicializar Trainer
@@ -213,65 +230,67 @@ def run_fine_tuning(
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        data_collator=collate_fn, # Usa a função de colagem personalizada
-        compute_metrics=compute_metrics, # Adiciona a função para calcular métricas
+        data_collator=collate_fn, # Usa a funcao de colagem personalizada
+        compute_metrics=compute_metrics, # Adiciona a funcao para calcular metricas
     )
 
     # Treinar o modelo
     print("Iniciando treinamento do modelo TrOCR...")
     trainer.train()
-    print("Treinamento concluído!")
+    print("Treinamento concluido!")
 
     # Salvar o modelo e o processador treinados
     print(f"Salvando modelo e processador fine-tuned em {model_output_dir}...")
-    os.makedirs(model_output_dir, exist_ok=True) # Garante que o diretório exista
+    os.makedirs(model_output_dir, exist_ok=True) # Garante que o diretorio exista
     processor.save_pretrained(model_output_dir)
     model.save_pretrained(model_output_dir)
     print("Modelo e processador salvos com sucesso.")
 
-    # --- Exemplo de Inferência (Após o treinamento) ---
-    print("\n--- Exemplo de Inferência após o treinamento ---")
+    # --- Exemplo de Inferência (Apos o treinamento) ---
+    print("\n--- Exemplo de Inferencia apos o treinamento ---")
     if eval_dataset and len(eval_dataset) > 0:
         try:
-            # Pega um item do dataset de validação para teste
+            # Pega um item do dataset de validacao para teste
             sample_item = eval_dataset[0]
-            # Adiciona dimensão de batch e move para o dispositivo correto
+            # Adiciona dimensao de batch e move para o dispositivo correto
             pixel_values_sample = sample_item["pixel_values"].unsqueeze(0).to(device)
 
             # Gera o texto a partir da imagem
             generated_ids = model.generate(pixel_values_sample)
             generated_text = processor.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
-            # Decodifica o texto original (label) para comparação
+            # Decodifica o texto original (label) para comparacao
             original_text = processor.tokenizer.decode(
                 sample_item['labels'][sample_item['labels'] != -100],
                 skip_special_tokens=True
             )
             print(f"Texto Original (Label): {original_text}")
-            print(f"Texto Gerado (Previsão): {generated_text}")
+            print(f"Texto Gerado (Previsao): {generated_text}")
         except IndexError:
-            print("Nenhum dado de avaliação disponível para exemplo de inferência.")
+            print("Nenhum dado de avaliacao disponivel para exemplo de inferencia.")
         except Exception as e:
-            print(f"Erro durante o exemplo de inferência: {e}")
+            print(f"Erro durante o exemplo de inferencia: {e}")
     else:
-        print("Nenhum dataset de avaliação disponível para exemplo de inferência.")
+        print("Nenhum dataset de avaliacao disponivel para exemplo de inferencia.")
 
 
 if __name__ == "__main__":
-    # Configuração do parser de argumentos para permitir que o Streamlit passe parâmetros
-    parser = argparse.ArgumentParser(description="Script de Fine-tuning do TrOCR para Atestados Médicos.")
+    # Configuracao do parser de argumentos para permitir que o Streamlit passe parametros
+    parser = argparse.ArgumentParser(description="Script de Fine-tuning do TrOCR para Atestados Medicos.")
     parser.add_argument("--data_json_path", type=str, required=True,
                         help="Caminho para o arquivo JSONL contendo os dados de treinamento.")
     parser.add_argument("--model_output_dir", type=str, default="fine_tuned_trocr_model",
-                        help="Diretório para salvar o modelo e o processador treinados.")
+                        help="Diretorio para salvar o modelo e o processador treinados.")
     parser.add_argument("--epochs", type=int, default=3,
-                        help="Número de épocas de treinamento.")
+                        help="Numero de epocas de treinamento.")
     parser.add_argument("--batch_size", type=int, default=2,
-                        help="Tamanho do batch para treinamento e avaliação.")
+                        help="Tamanho do batch para treinamento e avaliacao.")
     parser.add_argument("--learning_rate", type=float, default=4e-5,
                         help="Taxa de aprendizado para o otimizador.")
-    parser.add_argument("--save_total_limit", type=int, default=3,
-                        help="Limite o número total de checkpoints a serem salvos.")
+    parser.add_argument("--save_total_limit", type=int, default=3, # Adicionado este argumento
+                        help="Limite o numero total de checkpoints a serem salvos.")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, # NOVO: Adicionado este argumento
+                        help="Numero de passos para acumular gradientes antes de atualizar os pesos.")
 
 
     args = parser.parse_args()
@@ -283,6 +302,6 @@ if __name__ == "__main__":
         epochs=args.epochs,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
-        save_total_limit=args.save_total_limit,
+        save_total_limit=args.save_total_limit, # Passando o argumento
+        gradient_accumulation_steps=args.gradient_accumulation_steps, # Passando o argumento
     )
-
